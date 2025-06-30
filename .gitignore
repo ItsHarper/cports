@@ -15,4 +15,3 @@ bootstrap.*
 
 # custom configs
 .nvim.lua
-.idea

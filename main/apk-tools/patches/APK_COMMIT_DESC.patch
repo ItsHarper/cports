@@ -1,0 +1,833 @@
+From 30a5feb7dc7e12edcdbf0335237d89541c881bc0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timo=20Ter=C3=A4s?= <timo.teras@iki.fi>
+Date: Sun, 25 May 2025 19:18:34 +0300
+Subject: [PATCH 1/4] db, doc: update and document environment variables for
+ scripts
+
+Filter APK_ prefixed environment variables always. And have
+APK set APK_SCRIPT environment variable for the scripts it
+executes.
+
+Document the current scripts execution environment and arguments.
+---
+ doc/apk-package.5.scd | 18 ++++++++++--------
+ doc/apk.8.scd         | 22 +++++++++++++++++++++-
+ src/apk_context.h     |  1 +
+ src/apk_database.h    |  2 +-
+ src/commit.c          |  2 +-
+ src/context.c         | 12 ++++++++++++
+ src/database.c        | 21 +++++++++++----------
+ src/package.c         |  2 +-
+ test/user/scripts.sh  | 24 ++++++++++++++++++------
+ 9 files changed, 76 insertions(+), 28 deletions(-)
+
+diff --git a/doc/apk-package.5.scd b/doc/apk-package.5.scd
+index 6c1df6b..6fba535 100644
+--- a/doc/apk-package.5.scd
++++ b/doc/apk-package.5.scd
+@@ -258,14 +258,16 @@ Unfortunately it is not possible to deduce if a given string is of format
+ 	are executed before or after package installation, removal, upgrade
+ 	as well as to handle trigger conditions.
+ 
+-	Currently defined script types:
+-	- trigger
+-	- pre-install
+-	- post-install
+-	- pre-deinstall
+-	- post-deinstall
+-	- pre-upgrade
+-	- post-upgrade
++	Currently defined script types and their arguments:
++	- trigger <matched-trigger>...
++	- pre-install <new-version>
++	- post-install <new-version>
++	- pre-deinstall <old-version>
++	- post-deinstall <old-version>
++	- pre-upgrade <new-version> <old-version>
++	- post-upgrade <new-version> <old-version>
++
++	See also the ENVIRONMENT section in *apk*(8) for the environment variables.
+ 
+ *triggers*
+ 	List of directory globs. APK will execute the trigger script with
+diff --git a/doc/apk.8.scd b/doc/apk.8.scd
+index 4fc101b..f8b32a9 100644
+--- a/doc/apk.8.scd
++++ b/doc/apk.8.scd
+@@ -219,7 +219,8 @@ The following options are available for all commands.
+ 	Disable progress bar even for TTYs.
+ 
+ *--preserve-env*
+-	Pass user environment down to scripts.
++	Pass user environment down to scripts (excluding variables starting
++	APK_ which are reserved).
+ 
+ *--print-arch*
+ 	Print default arch and exit.
+@@ -362,6 +363,23 @@ The following options are available for all commands which generate APKv3 files.
+ *SSL_NO_VERIFY_HOSTNAME*
+ 	If set to anything, disables the server certificate name verification.
+ 
++## Environment for the scripts APK executes
++
++Normally *apk* will execute scripts with a sanitized, minimal environment
++containing only *PATH*. See also *--preserve-env* to pass additional
++environment variables.
++
++Before executing a script, apk will set working directory as _ROOT_ and
++performs a chroot unless *--force-no-chroot* is specified. In either case,
++the script working directory should be treated as the system root.
++
++The environment variables defined by APK are the following:
++
++*APK_SCRIPT*
++	Set to one of the package or commit script types. Use this to determine
++	the script hook type if needed. The filename (\$0) is not reliable since
++	apk prefers to execute package scripts from a memfd file.
++
+ # FILES
+ 
+ ## Configuration files
+@@ -397,6 +415,8 @@ timeout 120
+ 	(*pre-commit* or *post-commit*). If the script returns failure during
+ 	*pre-commit* stage, the commit is aborted.
+ 
++	See also the ENVIRONMENT section for the environment variables.
++
+ 	If *--no-scripts* or *--no-commit-hooks* option is specified, these
+ 	hook scripts are not executed.
+ 
+diff --git a/src/apk_context.h b/src/apk_context.h
+index 2200100..38b47f1 100644
+--- a/src/apk_context.h
++++ b/src/apk_context.h
+@@ -79,6 +79,7 @@ struct apk_ctx {
+ 	struct apk_string_array *repository_list;
+ 	struct apk_string_array *repository_config_list;
+ 	struct apk_string_array *arch_list;
++	struct apk_string_array *script_environment;
+ 	struct apk_istream *protected_paths;
+ 
+ 	struct apk_digest_ctx dctx;
+diff --git a/src/apk_database.h b/src/apk_database.h
+index 543a443..749bbb8 100644
+--- a/src/apk_database.h
++++ b/src/apk_database.h
+@@ -269,7 +269,7 @@ int apk_db_write_config(struct apk_database *db);
+ int apk_db_permanent(struct apk_database *db);
+ int apk_db_check_world(struct apk_database *db, struct apk_dependency_array *world);
+ int apk_db_fire_triggers(struct apk_database *db);
+-int apk_db_run_script(struct apk_database *db, int fd, char **argv);
++int apk_db_run_script(struct apk_database *db, const char *hook_type, int fd, char **argv);
+ int apk_db_cache_active(struct apk_database *db);
+ static inline time_t apk_db_url_since(struct apk_database *db, time_t since) {
+ 	return apk_ctx_since(db->ctx, since);
+diff --git a/src/commit.c b/src/commit.c
+index 01cfb49..c0d6d6b 100644
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -266,7 +266,7 @@ static int run_commit_hook(void *ctx, int dirfd, const char *file)
+ 	}
+ 	apk_dbg(out, "Executing: %s %s", fn, commit_hook_str[hook->type]);
+ 
+-	if (apk_db_run_script(db, -1, argv) < 0 && hook->type == PRE_COMMIT_HOOK)
++	if (apk_db_run_script(db, commit_hook_str[hook->type], -1, argv) < 0 && hook->type == PRE_COMMIT_HOOK)
+ 		ret = -2;
+ 
+ 	return ret;
+diff --git a/src/context.c b/src/context.c
+index aea1f48..e309d6a 100644
+--- a/src/context.c
++++ b/src/context.c
+@@ -20,6 +20,7 @@ void apk_ctx_init(struct apk_ctx *ac)
+ 	apk_string_array_init(&ac->repository_list);
+ 	apk_string_array_init(&ac->repository_config_list);
+ 	apk_string_array_init(&ac->arch_list);
++	apk_string_array_init(&ac->script_environment);
+ 	apk_trust_init(&ac->trust);
+ 	apk_out_reset(&ac->out);
+ 	ac->out.out = stdout;
+@@ -113,6 +114,17 @@ int apk_ctx_prepare(struct apk_ctx *ac)
+ 		}
+ 		ac->out.log = fdopen(fd, "a");
+ 	}
++
++	apk_string_array_add(&ac->script_environment, "APK_SCRIPT=");
++	if (ac->flags & APK_PRESERVE_ENV) {
++		for (int i = 0; environ[i]; i++)
++			if (strncmp(environ[i], "APK_", 4) != 0)
++				apk_string_array_add(&ac->script_environment, environ[i]);
++	} else {
++		apk_string_array_add(&ac->script_environment, "PATH=/usr/sbin:/usr/bin:/sbin:/bin");
++	}
++	apk_string_array_add(&ac->script_environment, NULL);
++
+ 	return 0;
+ }
+ 
+diff --git a/src/database.c b/src/database.c
+index c6a03b5..adb9751 100644
+--- a/src/database.c
++++ b/src/database.c
+@@ -2333,13 +2333,11 @@ static void script_panic(const char *reason)
+ 	exit(127);
+ }
+ 
+-int apk_db_run_script(struct apk_database *db, int fd, char **argv)
++int apk_db_run_script(struct apk_database *db, const char *hook_type, int fd, char **argv)
+ {
+-	struct apk_out *out = &db->ctx->out;
+-	static char * const clean_environment[] = {
+-		"PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+-		NULL
+-	};
++	char script_type_var[64];
++	struct apk_ctx *ac = db->ctx;
++	struct apk_out *out = &ac->out;
+ 	const char *argv0 = apk_last_path_segment(argv[0]);
+ 	struct apk_process p;
+ 	int r;
+@@ -2353,15 +2351,18 @@ int apk_db_run_script(struct apk_database *db, int fd, char **argv)
+ 		return -2;
+ 	}
+ 	if (pid == 0) {
+-		char *const *env = (db->ctx->flags & APK_PRESERVE_ENV) ? environ : clean_environment;
+ 		umask(0022);
+ 		if (fchdir(db->root_fd) != 0) script_panic("fchdir");
+-		if (!(db->ctx->flags & APK_NO_CHROOT)) {
++		if (!(ac->flags & APK_NO_CHROOT)) {
+ 			if (db->usermode && unshare_mount_namepsace() < 0) script_panic("unshare");
+ 			if (chroot(".") != 0) script_panic("chroot");
+ 		}
+-		if (fd >= 0) fexecve(fd, argv, env);
+-		execve(argv[0], argv, env);
++
++		char **envp = &ac->script_environment->item[0];
++		envp[0] = apk_fmts(script_type_var, sizeof script_type_var, "%s%s", envp[0], hook_type);
++
++		if (fd >= 0) fexecve(fd, argv, envp);
++		execve(argv[0], argv, envp);
+ 		script_panic("execve");
+ 	}
+ 	return apk_process_run(&p);
+diff --git a/src/package.c b/src/package.c
+index 8001536..a88354d 100644
+--- a/src/package.c
++++ b/src/package.c
+@@ -815,7 +815,7 @@ int apk_ipkg_run_script(struct apk_installed_package *ipkg,
+ 	}
+ 
+ 	apk_msg(out, PKG_VER_FMT ".%s: Executing script...", PKG_VER_PRINTF(pkg), apk_script_types[type]);
+-	if (apk_db_run_script(db, fd, argv) < 0)
++	if (apk_db_run_script(db, apk_script_types[type], fd, argv) < 0)
+ 		goto err;
+ 
+ 	/* Script may have done something that changes id cache contents */
+diff --git a/test/user/scripts.sh b/test/user/scripts.sh
+index a4ac8b9..1f8e5be 100755
+--- a/test/user/scripts.sh
++++ b/test/user/scripts.sh
+@@ -6,14 +6,16 @@ TESTDIR=$(realpath "${TESTDIR:-"$(dirname "$0")"/..}")
+ setup_apkroot
+ APK="$APK --allow-untrusted --no-interactive --force-no-chroot"
+ 
+-cat <<EOF > pre.sh
++export TEST_VARIABLE="test"
++
++cat <<'EOF' > pre.sh
+ #!/bin/sh
+-echo Hello from pre-install
++echo Hello from pre-install / ${APK_SCRIPT:-unset} / ${TEST_VARIABLE:-unset}
+ echo Error hello >&2
+ EOF
+-cat <<EOF > post.sh
++cat <<'EOF' > post.sh
+ #!/bin/sh
+-echo Hello from post-install
++echo Hello from post-install / ${APK_SCRIPT:-unset} / ${TEST_VARIABLE:-unset}
+ echo Error hello >&2
+ EOF
+ $APK mkpkg -I name:scripts -I version:1.0 -s pre-install:pre.sh -s post-install:post.sh -o scripts-1.0.apk
+@@ -22,9 +24,9 @@ $APK add --initdb $TEST_USERMODE scripts-1.0.apk > apk-stdout.log 2> apk-stderr.
+ diff -u - apk-stdout.log <<EOF || assert "wrong scripts result"
+ (1/1) Installing scripts (1.0)
+ scripts-1.0.pre-install: Executing script...
+-scripts-1.0.pre-install: Hello from pre-install
++scripts-1.0.pre-install: Hello from pre-install / pre-install / unset
+ scripts-1.0.post-install: Executing script...
+-scripts-1.0.post-install: Hello from post-install
++scripts-1.0.post-install: Hello from post-install / post-install / unset
+ OK: 0 MiB in 1 packages
+ EOF
+ 
+@@ -32,3 +34,13 @@ diff -u - apk-stderr.log <<EOF || assert "wrong scripts result"
+ scripts-1.0.pre-install: Error hello
+ scripts-1.0.post-install: Error hello
+ EOF
++
++$APK del scripts
++$APK add --preserve-env $TEST_USERMODE scripts-1.0.apk | diff -u /dev/fd/4 4<<EOF - || assert "wrong scripts result"
++(1/1) Installing scripts (1.0)
++scripts-1.0.pre-install: Executing script...
++scripts-1.0.pre-install: Hello from pre-install / pre-install / test
++scripts-1.0.post-install: Executing script...
++scripts-1.0.post-install: Hello from post-install / post-install / test
++OK: 0 MiB in 1 packages
++EOF
+-- 
+2.49.0
+
+
+From 97a7c9b5f0105ba74e6008938398227e14d85b16 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timo=20Ter=C3=A4s?= <timo.teras@iki.fi>
+Date: Fri, 6 Jun 2025 10:49:41 +0300
+Subject: [PATCH 2/4] pkg: export APK_PACKAGE for package scripts
+
+---
+ doc/apk.8.scd        |  3 +++
+ src/apk_database.h   |  2 +-
+ src/commit.c         |  2 +-
+ src/context.c        |  2 --
+ src/database.c       | 41 ++++++++++++++++++++++++++++++++---------
+ src/package.c        |  2 +-
+ test/user/scripts.sh |  6 +++---
+ 7 files changed, 41 insertions(+), 17 deletions(-)
+
+diff --git a/doc/apk.8.scd b/doc/apk.8.scd
+index f8b32a9..e2866a8 100644
+--- a/doc/apk.8.scd
++++ b/doc/apk.8.scd
+@@ -375,6 +375,9 @@ the script working directory should be treated as the system root.
+ 
+ The environment variables defined by APK are the following:
+ 
++*APK_PACKAGE*
++	Package name (package scripts only).
++
+ *APK_SCRIPT*
+ 	Set to one of the package or commit script types. Use this to determine
+ 	the script hook type if needed. The filename (\$0) is not reliable since
+diff --git a/src/apk_database.h b/src/apk_database.h
+index 749bbb8..a941db3 100644
+--- a/src/apk_database.h
++++ b/src/apk_database.h
+@@ -269,7 +269,7 @@ int apk_db_write_config(struct apk_database *db);
+ int apk_db_permanent(struct apk_database *db);
+ int apk_db_check_world(struct apk_database *db, struct apk_dependency_array *world);
+ int apk_db_fire_triggers(struct apk_database *db);
+-int apk_db_run_script(struct apk_database *db, const char *hook_type, int fd, char **argv);
++int apk_db_run_script(struct apk_database *db, const char *hook_type, const char *package_name, int fd, char **argv);
+ int apk_db_cache_active(struct apk_database *db);
+ static inline time_t apk_db_url_since(struct apk_database *db, time_t since) {
+ 	return apk_ctx_since(db->ctx, since);
+diff --git a/src/commit.c b/src/commit.c
+index c0d6d6b..887b553 100644
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -266,7 +266,7 @@ static int run_commit_hook(void *ctx, int dirfd, const char *file)
+ 	}
+ 	apk_dbg(out, "Executing: %s %s", fn, commit_hook_str[hook->type]);
+ 
+-	if (apk_db_run_script(db, commit_hook_str[hook->type], -1, argv) < 0 && hook->type == PRE_COMMIT_HOOK)
++	if (apk_db_run_script(db, commit_hook_str[hook->type], NULL, -1, argv) < 0 && hook->type == PRE_COMMIT_HOOK)
+ 		ret = -2;
+ 
+ 	return ret;
+diff --git a/src/context.c b/src/context.c
+index e309d6a..58ac9ce 100644
+--- a/src/context.c
++++ b/src/context.c
+@@ -115,7 +115,6 @@ int apk_ctx_prepare(struct apk_ctx *ac)
+ 		ac->out.log = fdopen(fd, "a");
+ 	}
+ 
+-	apk_string_array_add(&ac->script_environment, "APK_SCRIPT=");
+ 	if (ac->flags & APK_PRESERVE_ENV) {
+ 		for (int i = 0; environ[i]; i++)
+ 			if (strncmp(environ[i], "APK_", 4) != 0)
+@@ -123,7 +122,6 @@ int apk_ctx_prepare(struct apk_ctx *ac)
+ 	} else {
+ 		apk_string_array_add(&ac->script_environment, "PATH=/usr/sbin:/usr/bin:/sbin:/bin");
+ 	}
+-	apk_string_array_add(&ac->script_environment, NULL);
+ 
+ 	return 0;
+ }
+diff --git a/src/database.c b/src/database.c
+index adb9751..2e0dc48 100644
+--- a/src/database.c
++++ b/src/database.c
+@@ -2333,22 +2333,43 @@ static void script_panic(const char *reason)
+ 	exit(127);
+ }
+ 
+-int apk_db_run_script(struct apk_database *db, const char *hook_type, int fd, char **argv)
++struct env_buf {
++	struct apk_string_array **arr;
++	char data[1024];
++	int pos;
++};
++
++static void env_buf_add(struct env_buf *enb, const char *key, const char *val)
++{
++	int n = snprintf(&enb->data[enb->pos], sizeof enb->data - enb->pos, "%s=%s", key, val);
++	if (n >= sizeof enb->data - enb->pos) return;
++	apk_string_array_add(enb->arr, &enb->data[enb->pos]);
++	enb->pos += n + 1;
++}
++
++int apk_db_run_script(struct apk_database *db, const char *hook_type, const char *package_name, int fd, char **argv)
+ {
+-	char script_type_var[64];
++	struct env_buf enb;
+ 	struct apk_ctx *ac = db->ctx;
+ 	struct apk_out *out = &ac->out;
+-	const char *argv0 = apk_last_path_segment(argv[0]);
+ 	struct apk_process p;
+-	int r;
++	int r, env_size_save = apk_array_len(ac->script_environment);
++	const char *argv0 = apk_last_path_segment(argv[0]);
+ 
+ 	r = apk_process_init(&p, argv0, out, NULL);
+-	if (r != 0) return r;
++	if (r != 0) goto err;
++
++	enb.arr = &ac->script_environment;
++	enb.pos = 0;
++	env_buf_add(&enb, "APK_SCRIPT", hook_type);
++	if (package_name) env_buf_add(&enb, "APK_PACKAGE", package_name);
++	apk_string_array_add(&ac->script_environment, NULL);
+ 
+ 	pid_t pid = apk_process_fork(&p);
+ 	if (pid == -1) {
+-		apk_err(out, "%s: fork: %s", argv0, strerror(errno));
+-		return -2;
++		r = -errno;
++		apk_err(out, "%s: fork: %s", argv0, apk_error_str(r));
++		goto err;
+ 	}
+ 	if (pid == 0) {
+ 		umask(0022);
+@@ -2359,13 +2380,15 @@ int apk_db_run_script(struct apk_database *db, const char *hook_type, int fd, ch
+ 		}
+ 
+ 		char **envp = &ac->script_environment->item[0];
+-		envp[0] = apk_fmts(script_type_var, sizeof script_type_var, "%s%s", envp[0], hook_type);
+ 
+ 		if (fd >= 0) fexecve(fd, argv, envp);
+ 		execve(argv[0], argv, envp);
+ 		script_panic("execve");
+ 	}
+-	return apk_process_run(&p);
++	r = apk_process_run(&p);
++err:
++	apk_array_truncate(ac->script_environment, env_size_save);
++	return r;
+ }
+ 
+ int apk_db_cache_active(struct apk_database *db)
+diff --git a/src/package.c b/src/package.c
+index a88354d..b7059fe 100644
+--- a/src/package.c
++++ b/src/package.c
+@@ -815,7 +815,7 @@ int apk_ipkg_run_script(struct apk_installed_package *ipkg,
+ 	}
+ 
+ 	apk_msg(out, PKG_VER_FMT ".%s: Executing script...", PKG_VER_PRINTF(pkg), apk_script_types[type]);
+-	if (apk_db_run_script(db, apk_script_types[type], fd, argv) < 0)
++	if (apk_db_run_script(db, apk_script_types[type], pkg->name->name, fd, argv) < 0)
+ 		goto err;
+ 
+ 	/* Script may have done something that changes id cache contents */
+diff --git a/test/user/scripts.sh b/test/user/scripts.sh
+index 1f8e5be..6424911 100755
+--- a/test/user/scripts.sh
++++ b/test/user/scripts.sh
+@@ -10,7 +10,7 @@ export TEST_VARIABLE="test"
+ 
+ cat <<'EOF' > pre.sh
+ #!/bin/sh
+-echo Hello from pre-install / ${APK_SCRIPT:-unset} / ${TEST_VARIABLE:-unset}
++echo Hello from pre-install / ${APK_SCRIPT:-unset} / ${APK_PACKAGE:-noname} / ${TEST_VARIABLE:-unset}
+ echo Error hello >&2
+ EOF
+ cat <<'EOF' > post.sh
+@@ -24,7 +24,7 @@ $APK add --initdb $TEST_USERMODE scripts-1.0.apk > apk-stdout.log 2> apk-stderr.
+ diff -u - apk-stdout.log <<EOF || assert "wrong scripts result"
+ (1/1) Installing scripts (1.0)
+ scripts-1.0.pre-install: Executing script...
+-scripts-1.0.pre-install: Hello from pre-install / pre-install / unset
++scripts-1.0.pre-install: Hello from pre-install / pre-install / scripts / unset
+ scripts-1.0.post-install: Executing script...
+ scripts-1.0.post-install: Hello from post-install / post-install / unset
+ OK: 0 MiB in 1 packages
+@@ -39,7 +39,7 @@ $APK del scripts
+ $APK add --preserve-env $TEST_USERMODE scripts-1.0.apk | diff -u /dev/fd/4 4<<EOF - || assert "wrong scripts result"
+ (1/1) Installing scripts (1.0)
+ scripts-1.0.pre-install: Executing script...
+-scripts-1.0.pre-install: Hello from pre-install / pre-install / test
++scripts-1.0.pre-install: Hello from pre-install / pre-install / scripts / test
+ scripts-1.0.post-install: Executing script...
+ scripts-1.0.post-install: Hello from post-install / post-install / test
+ OK: 0 MiB in 1 packages
+-- 
+2.49.0
+
+
+From 78143a7143c45e1e6ab36e5ecc230ed00e6dc992 Mon Sep 17 00:00:00 2001
+From: ItsHarper <10224994+ItsHarper@users.noreply.github.com>
+Date: Wed, 9 Jul 2025 21:36:46 -0500
+Subject: [PATCH 3/4] Code formatting tweak
+
+---
+ src/apk_solver.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/apk_solver.h b/src/apk_solver.h
+index 37f85b7..b363b92 100644
+--- a/src/apk_solver.h
++++ b/src/apk_solver.h
+@@ -52,5 +52,6 @@ void apk_solver_print_errors(struct apk_database *db,
+ 			     struct apk_changeset *changeset,
+ 			     struct apk_dependency_array *world);
+ 
+-int apk_solver_commit(struct apk_database *db, unsigned short solver_flags,
++int apk_solver_commit(struct apk_database *db,
++		      unsigned short solver_flags,
+ 		      struct apk_dependency_array *world);
+-- 
+2.49.0
+
+
+From a4b979b17819d0a0d559127c25e72360fea9f5e7 Mon Sep 17 00:00:00 2001
+From: ItsHarper <10224994+ItsHarper@users.noreply.github.com>
+Date: Wed, 9 Jul 2025 21:20:04 -0500
+Subject: [PATCH 4/4] Add APK_COMMIT_DESC env variable for commit hooks
+
+---
+ src/apk.c          |  4 ++++
+ src/apk_applet.h   |  1 +
+ src/apk_database.h |  2 +-
+ src/apk_solver.h   |  6 ++++--
+ src/app_add.c      |  2 +-
+ src/app_del.c      |  2 +-
+ src/app_fix.c      |  2 +-
+ src/app_upgrade.c  |  4 ++--
+ src/applet.c       | 46 ++++++++++++++++++++++++++++++++++++++++++++++
+ src/commit.c       | 19 +++++++++++--------
+ src/database.c     |  3 ++-
+ src/package.c      |  2 +-
+ 12 files changed, 75 insertions(+), 18 deletions(-)
+
+diff --git a/src/apk.c b/src/apk.c
+index dc190db..8e435d3 100644
+--- a/src/apk.c
++++ b/src/apk.c
+@@ -28,7 +28,9 @@
+ #include "apk_io.h"
+ #include "apk_fs.h"
+ 
++int apk_argc;
+ char **apk_argv;
++extern char *apk_invocation;
+ 
+ static void version(struct apk_out *out, const char *prefix)
+ {
+@@ -579,6 +581,7 @@ int main(int argc, char **argv)
+ 
+ 	apk_string_array_init(&args);
+ 
++	apk_argc = argc;
+ 	apk_argv = malloc(sizeof(char*[argc+2]));
+ 	memcpy(apk_argv, argv, sizeof(char*[argc]));
+ 	apk_argv[argc] = NULL;
+@@ -653,6 +656,7 @@ err:
+ 	apk_ctx_free(&ctx);
+ 	apk_string_array_free(&args);
+ 	free(apk_argv);
++	free(apk_invocation);
+ 
+ 	if (r < 0) r = 250;
+ 	if (r > 99) r = 99;
+diff --git a/src/apk_applet.h b/src/apk_applet.h
+index 45da5a6..a921b28 100644
+--- a/src/apk_applet.h
++++ b/src/apk_applet.h
+@@ -49,6 +49,7 @@ struct apk_applet {
+ void apk_applet_register(struct apk_applet *);
+ struct apk_applet *apk_applet_find(const char *name);
+ void apk_applet_help(struct apk_applet *applet, struct apk_out *out);
++char *get_apk_invocation();
+ 
+ #define APK_DEFINE_APPLET(x) \
+ __attribute__((constructor)) static void __register_##x(void) { apk_applet_register(&x); }
+diff --git a/src/apk_database.h b/src/apk_database.h
+index a941db3..c0619e9 100644
+--- a/src/apk_database.h
++++ b/src/apk_database.h
+@@ -269,7 +269,7 @@ int apk_db_write_config(struct apk_database *db);
+ int apk_db_permanent(struct apk_database *db);
+ int apk_db_check_world(struct apk_database *db, struct apk_dependency_array *world);
+ int apk_db_fire_triggers(struct apk_database *db);
+-int apk_db_run_script(struct apk_database *db, const char *hook_type, const char *package_name, int fd, char **argv);
++int apk_db_run_script(struct apk_database *db, const char *hook_type, const char *package_name, const char *commit_desc, int fd, char **argv);
+ int apk_db_cache_active(struct apk_database *db);
+ static inline time_t apk_db_url_since(struct apk_database *db, time_t since) {
+ 	return apk_ctx_since(db->ctx, since);
+diff --git a/src/apk_solver.h b/src/apk_solver.h
+index b363b92..11ab1ba 100644
+--- a/src/apk_solver.h
++++ b/src/apk_solver.h
+@@ -47,11 +47,13 @@ int apk_solver_precache_changeset(struct apk_database *db, struct apk_changeset
+ 
+ int apk_solver_commit_changeset(struct apk_database *db,
+ 				struct apk_changeset *changeset,
+-				struct apk_dependency_array *world);
++				struct apk_dependency_array *world,
++				const char *commit_desc);
+ void apk_solver_print_errors(struct apk_database *db,
+ 			     struct apk_changeset *changeset,
+ 			     struct apk_dependency_array *world);
+ 
+ int apk_solver_commit(struct apk_database *db,
+ 		      unsigned short solver_flags,
+-		      struct apk_dependency_array *world);
++		      struct apk_dependency_array *world,
++		      const char *commit_desc);
+diff --git a/src/app_add.c b/src/app_add.c
+index 23f3a96..d0f13f2 100644
+--- a/src/app_add.c
++++ b/src/app_add.c
+@@ -189,7 +189,7 @@ static int add_main(void *ctx, struct apk_ctx *ac, struct apk_string_array *args
+ 					  actx->solver_flags);
+ 	}
+ 
+-	r = apk_solver_commit(db, 0, world);
++	r = apk_solver_commit(db, 0, world, get_apk_invocation());
+ 	apk_dependency_array_free(&world);
+ 	apk_pkgtmpl_free(&virtpkg);
+ 
+diff --git a/src/app_del.c b/src/app_del.c
+index 2ff42c9..8eeabd0 100644
+--- a/src/app_del.c
++++ b/src/app_del.c
+@@ -168,7 +168,7 @@ static int del_main(void *pctx, struct apk_ctx *ac, struct apk_string_array *arg
+ 				printf("\n");
+ 		}
+ 
+-		r = apk_solver_commit_changeset(db, &changeset, ctx->world);
++		r = apk_solver_commit_changeset(db, &changeset, ctx->world, get_apk_invocation());
+ 	} else {
+ 		apk_solver_print_errors(db, &changeset, ctx->world);
+ 	}
+diff --git a/src/app_fix.c b/src/app_fix.c
+index 6242495..b40365a 100644
+--- a/src/app_fix.c
++++ b/src/app_fix.c
+@@ -125,7 +125,7 @@ static int fix_main(void *pctx, struct apk_ctx *ac, struct apk_string_array *arg
+ 		}
+ 	}
+ 
+-	return apk_solver_commit(db, 0, db->world);
++	return apk_solver_commit(db, 0, db->world, get_apk_invocation());
+ }
+ 
+ static struct apk_applet apk_fix = {
+diff --git a/src/app_upgrade.c b/src/app_upgrade.c
+index b4d1a09..93b88e8 100644
+--- a/src/app_upgrade.c
++++ b/src/app_upgrade.c
+@@ -120,7 +120,7 @@ int apk_do_self_upgrade(struct apk_database *db, unsigned short solver_flags, un
+ 	}
+ 
+ 	apk_msg(out, "Upgrading critical system libraries and apk-tools:");
+-	apk_solver_commit_changeset(db, &changeset, db->world);
++	apk_solver_commit_changeset(db, &changeset, db->world, get_apk_invocation());
+ 	if (self_upgrade_only) goto ret;
+ 
+ 	apk_db_close(db);
+@@ -217,7 +217,7 @@ static int upgrade_main(void *ctx, struct apk_ctx *ac, struct apk_string_array *
+ 		if (uctx->errors) return uctx->errors;
+ 	}
+ 
+-	r = apk_solver_commit(db, solver_flags, world);
++	r = apk_solver_commit(db, solver_flags, world, get_apk_invocation());
+ 
+ 	if (world != db->world) apk_dependency_array_free(&world);
+ 	return r;
+diff --git a/src/applet.c b/src/applet.c
+index c6c6701..16429a1 100644
+--- a/src/applet.c
++++ b/src/applet.c
+@@ -15,6 +15,10 @@ static LIST_HEAD(apk_applet_list);
+ 
+ #define apk_applet_foreach(iter) list_for_each_entry(iter, &apk_applet_list, node)
+ 
++extern int apk_argc;
++extern char **apk_argv;
++char *apk_invocation = NULL;
++
+ void apk_applet_register(struct apk_applet *applet)
+ {
+ 	list_init(&applet->node);
+@@ -74,3 +78,45 @@ void apk_applet_help(struct apk_applet *applet, struct apk_out *out)
+ 	apk_err(out, "This apk-tools has been built without help");
+ #endif
+ }
++
++char *get_apk_invocation() {
++	const size_t num_spaces = apk_argc - 1;
++	size_t invocation_len;
++	size_t argc_lengths[apk_argc];
++	char *result, *cursor;
++
++	if (apk_invocation != NULL) {
++		return apk_invocation;
++	}
++
++	if (apk_argc < 1) {
++		apk_invocation = malloc(1);
++		apk_invocation[0] = '\0';
++		return apk_invocation;
++	}
++
++	invocation_len = num_spaces;
++	for (size_t i = 0; i < apk_argc; i++) {
++		const size_t arg_len = strlen(apk_argv[i]);
++		invocation_len += arg_len;
++		argc_lengths[i] = arg_len;
++	}
++
++	result = malloc(invocation_len + 1);
++	cursor = result;
++	*cursor = '\0';
++
++	for (size_t i = 0; i < apk_argc; i++) {
++		// Add a space before each word, except for the first one
++		if (i > 0) {
++			*cursor = ' ';
++			*(++cursor) = '\0';
++		}
++
++		strcat(cursor, apk_argv[i]);
++		cursor += argc_lengths[i];
++	}
++
++	apk_invocation = result;
++	return apk_invocation;
++}
+diff --git a/src/commit.c b/src/commit.c
+index 887b553..bd1f7bc 100644
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -245,6 +245,7 @@ static int run_triggers(struct apk_database *db, struct apk_changeset *changeset
+ struct apk_commit_hook {
+ 	struct apk_database *db;
+ 	int type;
++	const char *commit_desc;
+ };
+ 
+ static int run_commit_hook(void *ctx, int dirfd, const char *file)
+@@ -266,15 +267,15 @@ static int run_commit_hook(void *ctx, int dirfd, const char *file)
+ 	}
+ 	apk_dbg(out, "Executing: %s %s", fn, commit_hook_str[hook->type]);
+ 
+-	if (apk_db_run_script(db, commit_hook_str[hook->type], NULL, -1, argv) < 0 && hook->type == PRE_COMMIT_HOOK)
++	if (apk_db_run_script(db, commit_hook_str[hook->type], NULL, hook->commit_desc, -1, argv) < 0 && hook->type == PRE_COMMIT_HOOK)
+ 		ret = -2;
+ 
+ 	return ret;
+ }
+ 
+-static int run_commit_hooks(struct apk_database *db, int type)
++static int run_commit_hooks(struct apk_database *db, int type, const char *commit_desc)
+ {
+-	struct apk_commit_hook hook = { .db = db, .type = type };
++	struct apk_commit_hook hook = { .db = db, .type = type, .commit_desc = commit_desc };
+ 	return apk_dir_foreach_file(openat(db->root_fd, "etc/apk/commit_hooks.d", O_DIRECTORY | O_RDONLY | O_CLOEXEC),
+ 				    run_commit_hook, &hook);
+ }
+@@ -343,7 +344,8 @@ int apk_solver_precache_changeset(struct apk_database *db, struct apk_changeset
+ 
+ int apk_solver_commit_changeset(struct apk_database *db,
+ 				struct apk_changeset *changeset,
+-				struct apk_dependency_array *world)
++				struct apk_dependency_array *world,
++				const char *commit_desc)
+ {
+ 	struct apk_out *out = &db->ctx->out;
+ 	struct progress prog = { 0 };
+@@ -430,7 +432,7 @@ int apk_solver_commit_changeset(struct apk_database *db,
+ 		if (r > 0) apk_msg(out, "Proceeding with ugprade...");
+ 	}
+ 
+-	if (run_commit_hooks(db, PRE_COMMIT_HOOK) == -2)
++	if (run_commit_hooks(db, PRE_COMMIT_HOOK, commit_desc) == -2)
+ 		return -1;
+ 
+ 	/* Go through changes */
+@@ -463,7 +465,7 @@ int apk_solver_commit_changeset(struct apk_database *db,
+ all_done:
+ 	apk_dependency_array_copy(&db->world, world);
+ 	if (apk_db_write_config(db) != 0) errors++;
+-	run_commit_hooks(db, POST_COMMIT_HOOK);
++	run_commit_hooks(db, POST_COMMIT_HOOK, commit_desc);
+ 
+ 	if (!db->performing_self_upgrade) {
+ 		char buf[32];
+@@ -941,7 +943,8 @@ void apk_solver_print_errors(struct apk_database *db,
+ 
+ int apk_solver_commit(struct apk_database *db,
+ 		      unsigned short solver_flags,
+-		      struct apk_dependency_array *world)
++		      struct apk_dependency_array *world,
++		      const char *commit_desc)
+ {
+ 	struct apk_out *out = &db->ctx->out;
+ 	struct apk_changeset changeset = {};
+@@ -956,7 +959,7 @@ int apk_solver_commit(struct apk_database *db,
+ 	apk_change_array_init(&changeset.changes);
+ 	r = apk_solver_solve(db, solver_flags, world, &changeset);
+ 	if (r == 0)
+-		r = apk_solver_commit_changeset(db, &changeset, world);
++		r = apk_solver_commit_changeset(db, &changeset, world, commit_desc);
+ 	else
+ 		apk_solver_print_errors(db, &changeset, world);
+ 	apk_change_array_free(&changeset.changes);
+diff --git a/src/database.c b/src/database.c
+index 2e0dc48..cd0ac21 100644
+--- a/src/database.c
++++ b/src/database.c
+@@ -2347,7 +2347,7 @@ static void env_buf_add(struct env_buf *enb, const char *key, const char *val)
+ 	enb->pos += n + 1;
+ }
+ 
+-int apk_db_run_script(struct apk_database *db, const char *hook_type, const char *package_name, int fd, char **argv)
++int apk_db_run_script(struct apk_database *db, const char *hook_type, const char *package_name, const char *commit_desc, int fd, char **argv)
+ {
+ 	struct env_buf enb;
+ 	struct apk_ctx *ac = db->ctx;
+@@ -2362,6 +2362,7 @@ int apk_db_run_script(struct apk_database *db, const char *hook_type, const char
+ 	enb.arr = &ac->script_environment;
+ 	enb.pos = 0;
+ 	env_buf_add(&enb, "APK_SCRIPT", hook_type);
++	if (commit_desc) env_buf_add(&enb, "APK_COMMIT_DESC", commit_desc);
+ 	if (package_name) env_buf_add(&enb, "APK_PACKAGE", package_name);
+ 	apk_string_array_add(&ac->script_environment, NULL);
+ 
+diff --git a/src/package.c b/src/package.c
+index b7059fe..a0590ac 100644
+--- a/src/package.c
++++ b/src/package.c
+@@ -815,7 +815,7 @@ int apk_ipkg_run_script(struct apk_installed_package *ipkg,
+ 	}
+ 
+ 	apk_msg(out, PKG_VER_FMT ".%s: Executing script...", PKG_VER_PRINTF(pkg), apk_script_types[type]);
+-	if (apk_db_run_script(db, apk_script_types[type], pkg->name->name, fd, argv) < 0)
++	if (apk_db_run_script(db, apk_script_types[type], pkg->name->name, NULL, fd, argv) < 0)
+ 		goto err;
+ 
+ 	/* Script may have done something that changes id cache contents */
+-- 
+2.49.0
+

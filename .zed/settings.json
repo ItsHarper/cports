@@ -1,3 +1,4 @@
 {
-  "file_scan_exclusions": ["contrib/", "**/.git"]
+  "file_scan_exclusions": ["contrib/", "**/.git"],
+  "hard_tabs": false
 }

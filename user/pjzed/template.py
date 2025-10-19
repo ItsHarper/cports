@@ -1,6 +1,6 @@
 pkgname = "pjzed"
 pkgver = "0.179.0"
-pkgrel = 0
+pkgrel = 1
 _commit = "7ed9321efefbaf94f66da9eca1817167319d202d"
 # wasmtime
 archs = ["aarch64", "x86_64"]
@@ -19,9 +19,9 @@ hostmakedepends = [
     "protobuf-protoc",
 ]
 makedepends = [
+    "curl-devel",
     "fontconfig-devel",
     "freetype-devel",
-    "curl-devel",
     "libgit2-devel",
     "libxkbcommon-devel",
     "rust-bindgen",

@@ -62,6 +62,7 @@ def _genmod(pname):
         self.subdesc = f"{pname} plugin"
         # The scripts enabling the nushell plugins automatically are no completions
         # and make no sense in a `-nucomp` package
+        # TODO(Harper): Re-enable autosplit
         self.options = ["!autosplit"]
         return [
             f"usr/bin/nu_plugin_{pname}",

@@ -2177,6 +2177,9 @@ class Template(Package):
                     name=f"{name}.fish",
                 )
             case "nushell":
+                # TODO(Harper): We could distinguish between completions and other scripts by setting the name to <name>-completions.nu.
+                #               The `install_completion()` documentation does not document how it works, just that it's what you use when
+                #               you want to provide completions.
                 self.install_file(
                     src, "usr/share/nushell/vendor/autoload", name=f"{name}.nu"
                 )
@@ -2536,6 +2539,13 @@ class Subpackage(Package):
                                 f"usr/share/fish/completions/{p.name}.fish",
                                 True,
                             )
+                            # TODO(Harper): Abstract out peculiarities of each shell type into one place.
+                            #               I believe there's also a second path for fish that's missing above.
+                            #               EDIT: Actually it's probably fine to just have one, but it's the wrong one?
+
+                            # TODO(Harper): See https://github.com/chimera-linux/cports/pull/2767#discussion_r1730134869
+                            #               I'm not sure how I feel about what to do.
+                            # self._take_impl(f"usr/share/nushell/vendor/autoload/{p.name}.nu", True)
 
                         # and then take the command itself
                         return self._take_impl(

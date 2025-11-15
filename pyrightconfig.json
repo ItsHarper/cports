@@ -1,3 +1,4 @@
 {
-  "exclude": ["cbuild_cache"]
+  "exclude": ["cbuild_cache"],
+  "typeCheckingMode": "basic"
 }

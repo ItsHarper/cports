@@ -1,3 +1,4 @@
 {
   "exclude": ["cbuild_cache", "bldroot"],
+  "typeCheckingMode": "basic"
 }

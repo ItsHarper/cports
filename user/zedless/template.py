@@ -5,9 +5,8 @@ pkgdesc = "Code editor"
 license = "GPL-3.0-only"
 url = "https://github.com/zedless-editor/zed"
 
-# TODO(Harper): Switch to cargo-auditable
 hostmakedepends = [
-    "cargo",
+    "cargo-auditable",
     "cmake",
     "mold",
     "rust-bindgen",

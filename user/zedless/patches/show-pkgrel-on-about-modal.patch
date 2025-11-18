@@ -1,0 +1,13 @@
+diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
+index fa5651eafe..9fe3711464 100644
+--- a/crates/zed/src/zed.rs
++++ b/crates/zed/src/zed.rs
+@@ -946,7 +946,7 @@ fn about(
+     cx: &mut Context<Workspace>,
+ ) {
+     let release_channel = ReleaseChannel::global(cx).display_name();
+-    let version = env!("CARGO_PKG_VERSION");
++    let version = env!("RELEASE_VERSION");
+     let debug = if cfg!(debug_assertions) {
+         "(debug)"
+     } else {

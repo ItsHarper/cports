@@ -1,0 +1,13 @@
+diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
+index 80e40fc80e..d0d5e1228c 100644
+--- a/crates/cli/src/main.rs
++++ b/crates/cli/src/main.rs
+@@ -427,7 +427,7 @@ mod linux {
+                 // libexec is the standard, lib/zed is for Arch (and other non-libexec distros),
+                 // ./zed is for the target directory in development builds.
+                 let possible_locations =
+-                    ["../libexec/zed-editor", "../lib/zed/zed-editor", "./zed"];
++                    ["../libexec/zedless-editor"];
+                 possible_locations
+                     .iter()
+                     .find_map(|p| dir.join(p).canonicalize().ok().filter(|path| path != &cli))

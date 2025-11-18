@@ -1,6 +1,6 @@
 pkgname = "zedless"
 pkgver = "0.198.0"
-pkgrel = 0
+pkgrel = 1
 pkgdesc = "Code editor"
 license = "GPL-3.0-only"
 url = "https://github.com/zedless-editor/zed"
@@ -8,7 +8,6 @@ url = "https://github.com/zedless-editor/zed"
 hostmakedepends = [
     "cargo-auditable",
     "cmake",
-    "mold",
     "rust-bindgen",
     "pkgconf",
     "protobuf-protoc",
@@ -24,7 +23,7 @@ makedepends = [
 build_style = "cargo"
 make_build_args = ["--package", "zed", "--package", "cli"]
 make_build_env = {
-    "RELEASE_VERSION": pkgver,
+    "RELEASE_VERSION": f"{pkgver}-{pkgrel}",
     "ZED_UPDATE_EXPLANATION": "Update Zedless using the apk package manager",
 }
 # TODO(Harper): Switch to mainline zedless commit, then tag

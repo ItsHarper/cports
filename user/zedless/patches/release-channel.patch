@@ -1,0 +1,7 @@
+diff --git a/crates/zed/RELEASE_CHANNEL b/crates/zed/RELEASE_CHANNEL
+index 38f8e886e1..bf867e0ae5 100644
+--- a/crates/zed/RELEASE_CHANNEL
++++ b/crates/zed/RELEASE_CHANNEL
+@@ -1 +1 @@
+-dev
++stable

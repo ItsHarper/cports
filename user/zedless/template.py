@@ -1,6 +1,6 @@
 pkgname = "zedless"
 pkgver = "0.198.0"
-pkgrel = 2
+pkgrel = 3
 pkgdesc = "Code editor"
 license = "GPL-3.0-only"
 url = "https://github.com/zedless-editor/zed"

@@ -7,7 +7,7 @@ index 80e40fc80e..d0d5e1228c 100644
                  // ./zed is for the target directory in development builds.
                  let possible_locations =
 -                    ["../libexec/zed-editor", "../lib/zed/zed-editor", "./zed"];
-+                    ["../libexec/zedless-editor"];
++                    ["../lib/zedless/zedless-editor"];
                  possible_locations
                      .iter()
                      .find_map(|p| dir.join(p).canonicalize().ok().filter(|path| path != &cli))

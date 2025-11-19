@@ -1,3 +1,17 @@
+# Packages to add
+
+* pnpm (needed for vtsls)
+* vtsls (typescript LSP implementation)
+* basedpyright
+* Sublime's standalone VS Code LSPs
+  * Sublime is doing the best job at keeping a standalone version of VSCode's LSPs up-to-date
+  * Unfortunately, they use a different Markdown server based on .Net, which would not be straightforward to package
+  * https://github.com/sublimelsp/LSP-css
+  * https://github.com/sublimelsp/LSP-json
+  * https://github.com/sublimelsp/LSP-html
+  * https://github.com/sublimelsp/LSP-eslint
+* dua (TUI disk usage analyzer)
+
 # Deleting a package from the local repo
 
 Once you no longer have a need to build a particular package locally, you need

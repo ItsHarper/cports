@@ -1,0 +1,86 @@
+diff --git a/user/zedless-nightly/patches/desktop.patch b/user/zedless-nightly/patches/desktop.patch
+index 17eb1f5ae..d2225db76 100644
+--- a/user/zedless-nightly/patches/desktop.patch
++++ b/user/zedless-nightly/patches/desktop.patch
+@@ -5,16 +5,16 @@
+  Version=1.5
+  Type=Application
+ -Name=$APP_NAME
+-+Name=Zedless
+++Name=Zedless Nightly
+  GenericName=Text Editor
+  Comment=Zed editor fork focused on privacy and being local-first
+ -TryExec=$APP_CLI
+ -StartupNotify=$DO_STARTUP_NOTIFY
+ -Exec=$APP_CLI $APP_ARGS
+ -Icon=$APP_ICON
+-+TryExec=zedless
+++TryExec=zedless-nightly
+ +StartupNotify=true
+-+Exec=zedless %U
+++Exec=zedless-nightly %U
+ +Icon=zedless
+  Categories=Utility;TextEditor;Development;IDE;
+  Keywords=zed;
+@@ -23,5 +23,5 @@
+ 
+  [Desktop Action NewWorkspace]
+ -Exec=$APP_CLI --new $APP_ARGS
+-+Exec=zedless --new %U
+++Exec=zedless-nightly --new %U
+  Name=Open a new workspace
+diff --git a/user/zedless-nightly/patches/release-channel.patch b/user/zedless-nightly/patches/release-channel.patch
+index c536eb754..c9a3bb776 100644
+--- a/user/zedless-nightly/patches/release-channel.patch
++++ b/user/zedless-nightly/patches/release-channel.patch
+@@ -4,4 +4,4 @@ index 38f8e886e1..bf867e0ae5 100644
+ +++ b/crates/zed/RELEASE_CHANNEL
+ @@ -1 +1 @@
+ -dev
+-+stable
+++nightly
+diff --git a/user/zedless-nightly/patches/search-for-zedless-editor.patch b/user/zedless-nightly/patches/search-for-zedless-editor.patch
+index dce0b8e1c..61e4769a9 100644
+--- a/user/zedless-nightly/patches/search-for-zedless-editor.patch
++++ b/user/zedless-nightly/patches/search-for-zedless-editor.patch
+@@ -7,7 +7,7 @@ index 80e40fc80e..d0d5e1228c 100644
+                  // ./zed is for the target directory in development builds.
+                  let possible_locations =
+ -                    ["../libexec/zed-editor", "../lib/zed/zed-editor", "./zed"];
+-+                    ["../libexec/zedless-editor"];
+++                    ["../libexec/zedless-editor-nightly"];
+                  possible_locations
+                      .iter()
+                      .find_map(|p| dir.join(p).canonicalize().ok().filter(|path| path != &cli))
+diff --git a/user/zedless-nightly/template.py b/user/zedless-nightly/template.py
+index 5376e1b6a..fae0bf4ad 100644
+--- a/user/zedless-nightly/template.py
++++ b/user/zedless-nightly/template.py
+@@ -1,3 +1,5 @@
++# TODO: Update source like so:
++#       f"{url}/archive/8ad583be355bb480d83ff637ac22b6c11aa3f7ba.tar.gz"
+ pkgname = "zedless"
+ pkgver = "0.198.0"
+ pkgrel = 0
+@@ -39,11 +41,11 @@ def install(self):
+     self.install_file(
+         f"target/{self.profile().triplet}/release/zed",
+         "usr/libexec",
+-        name="zedless-editor",
++        name="zedless-editor-nightly",
+     )
+     self.install_bin(
+         f"target/{self.profile().triplet}/release/cli",
+-        name="zedless",
++        name="zedless-nightly",
+     )
+     self.install_file(
+         "crates/zed/resources/app-icon.png",
+@@ -58,6 +60,6 @@ def install(self):
+     self.install_file(
+         "crates/zed/resources/zed.desktop.in",
+         "usr/share/applications",
+-        name="org.zedless.Zedless.desktop",
++        name="org.zedless.Zedless-Nightly.desktop",
+     )
+     self.install_license("LICENSE-GPL")

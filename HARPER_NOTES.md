@@ -1,5 +1,14 @@
+# TODO
+
+* Update Zedless to mainline commit
+* Remove hard tabs from all of my packages
+
+# Packages pending submission
+* user/topiary
+
 # Packages to add
 
+* intelli-shell
 * pnpm (needed for vtsls)
 * vtsls (typescript LSP implementation)
 * basedpyright
@@ -10,7 +19,10 @@
   * https://github.com/sublimelsp/LSP-json
   * https://github.com/sublimelsp/LSP-html
   * https://github.com/sublimelsp/LSP-eslint
+* topiary-nushell
+* nu-lint
 * dua (TUI disk usage analyzer)
+* trivalent (more secure Chromium fork)
 
 # Deleting a package from the local repo
 

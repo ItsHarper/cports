@@ -1,10 +1,7 @@
 pkgname = "zedless"
 pkgver = "0.198.0"
 pkgrel = 4
-pkgdesc = "Code editor"
-license = "GPL-3.0-only"
-url = "https://github.com/zedless-editor/zed"
-
+build_style = "cargo"
 hostmakedepends = [
     "cargo-auditable",
     "cmake",
@@ -20,18 +17,21 @@ makedepends = [
     "sqlite-devel",
     "zstd-devel",
 ]
-build_style = "cargo"
 make_build_args = ["--package", "zed", "--package", "cli"]
 make_build_env = {
     "RELEASE_VERSION": f"{pkgver}-chimera-linux-{pkgrel}",
     "ZED_UPDATE_EXPLANATION": "Update Zedless using the apk package manager",
 }
-# TODO(Harper): Switch to mainline zedless commit, then tag
+pkgdesc = "Fork of the Zed text editor focused on privacy and being local-first"
+license = "GPL-3.0-only"
+url = "https://github.com/zedless-editor/zed"
+# TODO(Harper): Switch to a mainline zedless commit, then to a tag
 # source = f"{url}/archive/refs/tags/{pkgver}.tar.gz"
 source = "https://github.com/ItsHarper/zedless/archive/8ad583be355bb480d83ff637ac22b6c11aa3f7ba.tar.gz"
 sha256 = "680a2b4279373fece3362009e6e3ec9933babda58f6bacb094475e81386e629f"
 # TODO(Harper): Attempt to enable hardening after I have a better feel for stability as-is
 # hardening = ["vis", "cfi"]
+# Feel free to try getting the tests working
 options = ["!check"]
 
 

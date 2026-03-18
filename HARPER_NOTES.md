@@ -1,6 +1,5 @@
 # TODO
 
-* Update Zedless to mainline commit
 * Remove hard tabs from all of my packages
 
 # Packages pending submission
@@ -8,6 +7,7 @@
 
 # Packages to add
 
+* gram
 * intelli-shell
 * pnpm (needed for vtsls)
 * vtsls (typescript LSP implementation)

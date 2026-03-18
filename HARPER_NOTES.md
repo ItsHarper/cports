@@ -1,6 +1,5 @@
 # TODO
 
-* Update Zedless to mainline commit
 * Remove hard tabs from all of my packages
 
 # Packages pending submission
@@ -8,6 +7,7 @@
 
 # Packages to add
 
+* gram
 * intelli-shell
 * pnpm (needed for vtsls)
 * vtsls (typescript LSP implementation)
@@ -40,7 +40,7 @@ as a reference for how `apk mkndx` is used.
 cd ~/cports
 let repo = "main"
 let pkgToRemove = "borg"
-let signingKey = "./etc/keys/key.rsa"
+let signingKey = "./etc/keys/harper-68617d56.rsa"
 let arch = "x86_64"
 let pkgsPath = $"packages/($repo)/($arch)/"
 let pkgs = (

@@ -1,0 +1,13 @@
+diff --git a/crates/gram/src/gram.rs b/crates/gram/src/gram.rs
+index 1bafd42fb5..6e3a1f50a5 100644
+--- a/crates/gram/src/gram.rs
++++ b/crates/gram/src/gram.rs
+@@ -1001,7 +1001,7 @@ fn initialize_pane(
+ 
+ fn about(_: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
+     let release_channel = ReleaseChannel::global(cx).display_name();
+-    let version = env!("CARGO_PKG_VERSION");
++    let version = env!("RELEASE_VERSION");
+     let debug = if cfg!(debug_assertions) {
+         "(debug)"
+     } else {

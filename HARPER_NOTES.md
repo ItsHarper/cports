@@ -1,19 +1,22 @@
 # TODO
 
+* Attempt to enable Gram tests
 * Remove hard tabs from all of my packages
 
 # Packages pending submission
+
+* user/gram
+* user/envycontrol
 * user/topiary
 
 # Packages to add
 
-* gram
 * intelli-shell
 * pnpm (needed for vtsls)
 * vtsls (typescript LSP implementation)
 * basedpyright
 * Sublime's standalone VS Code LSPs
-  * Sublime is doing the best job at keeping a standalone version of VSCode's LSPs up-to-date
+  * As of late 2025, Sublime is doing the best job at keeping a standalone version of VSCode's LSPs up-to-date
   * Unfortunately, they use a different Markdown server based on .Net, which would not be straightforward to package
   * https://github.com/sublimelsp/LSP-css
   * https://github.com/sublimelsp/LSP-json

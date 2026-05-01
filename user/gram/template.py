@@ -1,6 +1,6 @@
 pkgname = "gram"
 pkgver = "1.2.0"
-pkgrel = 0
+pkgrel = 2
 build_style = "cargo"
 make_build_args = ["--package", "gram", "--package", "cli"]
 make_build_env = {

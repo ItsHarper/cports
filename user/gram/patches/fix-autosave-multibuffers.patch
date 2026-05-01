@@ -1,0 +1,272 @@
+From b418c9acb19cb1879f11f7d02196105eca00c693 Mon Sep 17 00:00:00 2001
+From: Om Chillure <omchillure4@gmail.com>
+Date: Thu, 5 Mar 2026 15:21:20 +0530
+Subject: [PATCH] workspace: Fix autosave on buffer change in multibuffer
+ (#50686)
+
+Fixes #50526
+Fixes https://github.com/zed-industries/zed/issues/42841
+Fixes https://github.com/zed-industries/zed/issues/49875
+
+### Summary
+
+Fix `autosave: on_focus_change` not firing reliably when leaving editors
+with nested focus targets (e.g. multibuffer/search flows).
+
+### Root cause
+
+Autosave on focus change was wired to `on_blur` of the item focus
+handle.
+`on_blur` only fires when that exact handle is the focused leaf, which
+misses common descendant-to-outside focus transitions.
+
+## Fix
+
+In `crates/workspace/src/item.rs`, switch autosave subscription from:
+     - `cx.on_blur(&self.read(cx).focus_handle(cx), ...)`
+
+to:
+     - `cx.on_focus_out(&self.read(cx).focus_handle(cx), ...)`
+
+Autosave behavior and guards remain unchanged:
+- only for `AutosaveSetting::OnFocusChange`
+- only when focus truly left the item (`!contains_focused`)
+- skipped when modal is active (`!has_active_modal`)
+
+### Impact
+
+- Fixes missed autosaves when moving focus from item descendants to
+other UI (terminal, file tree, search inputs, etc.).
+- No behavior change for other autosave modes (`off`, `after_delay`,
+`on_window_change`).
+
+### Video
+[Screencast from 2026-03-04
+15-23-07.webm](https://github.com/user-attachments/assets/81135999-320f-40f3-9673-7c0460e5a14a)
+
+
+
+
+Release Notes:
+
+- Fixed an issue where `"autosave": "on_focus_change"` would not
+reliably work in multibuffers.
+
+---------
+
+Co-authored-by: MrSubidubi <finn@zed.dev>
+---
+ crates/workspace/src/item.rs      | 62 ++++++++++++++++--------
+ crates/workspace/src/workspace.rs | 79 +++++++++++++++++++++++++++++++
+ 2 files changed, 120 insertions(+), 21 deletions(-)
+
+diff --git a/crates/workspace/src/item.rs b/crates/workspace/src/item.rs
+index fbde282427..7dbc4b1bba 100644
+--- a/crates/workspace/src/item.rs
++++ b/crates/workspace/src/item.rs
+@@ -790,10 +790,10 @@ impl<T: Item> ItemHandle for Entity<T> {
+                 },
+             ));
+ 
+-            cx.on_blur(
++            cx.on_focus_out(
+                 &self.read(cx).focus_handle(cx),
+                 window,
+-                move |workspace, window, cx| {
++                move |workspace, _event, window, cx| {
+                     if let Some(item) = weak_item.upgrade()
+                         && item.workspace_settings(cx).autosave == AutosaveSetting::OnFocusChange
+                     {
+@@ -1179,7 +1179,8 @@ pub mod test {
+     };
+     use gpui::{
+         AnyElement, App, AppContext as _, Context, Entity, EntityId, EventEmitter, Focusable,
+-        InteractiveElement, IntoElement, Render, SharedString, Task, WeakEntity, Window,
++        InteractiveElement, IntoElement, ParentElement, Render, SharedString, Task, WeakEntity,
++        Window,
+     };
+     use project::{Project, ProjectEntryId, ProjectPath, WorktreeId};
+     use std::{any::Any, cell::Cell};
+@@ -1208,6 +1209,7 @@ pub mod test {
+         pub tab_detail: Cell<Option<usize>>,
+         serialize: Option<Box<dyn Fn() -> Option<Task<anyhow::Result<()>>>>>,
+         focus_handle: gpui::FocusHandle,
++        pub child_focus_handles: Vec<gpui::FocusHandle>,
+     }
+ 
+     impl project::ProjectItem for TestProjectItem {
+@@ -1290,6 +1292,7 @@ pub mod test {
+                 workspace_id: Default::default(),
+                 focus_handle: cx.focus_handle(),
+                 serialize: None,
++                child_focus_handles: Vec::new(),
+             }
+         }
+ 
+@@ -1337,6 +1340,11 @@ pub mod test {
+             self
+         }
+ 
++        pub fn with_child_focus_handles(mut self, count: usize, cx: &mut Context<Self>) -> Self {
++            self.child_focus_handles = (0..count).map(|_| cx.focus_handle()).collect();
++            self
++        }
++
+         pub fn set_state(&mut self, state: String, cx: &mut Context<Self>) {
+             self.push_to_nav_history(cx);
+             self.state = state;
+@@ -1351,7 +1359,12 @@ pub mod test {
+ 
+     impl Render for TestItem {
+         fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+-            gpui::div().track_focus(&self.focus_handle(cx))
++            let parent = gpui::div().track_focus(&self.focus_handle(cx));
++            self.child_focus_handles
++                .iter()
++                .fold(parent, |parent, child_handle| {
++                    parent.child(gpui::div().track_focus(child_handle))
++                })
+         }
+     }
+ 
+@@ -1441,23 +1454,30 @@ pub mod test {
+         where
+             Self: Sized,
+         {
+-            Task::ready(Some(cx.new(|cx| Self {
+-                state: self.state.clone(),
+-                label: self.label.clone(),
+-                save_count: self.save_count,
+-                save_as_count: self.save_as_count,
+-                reload_count: self.reload_count,
+-                is_dirty: self.is_dirty,
+-                buffer_kind: self.buffer_kind,
+-                has_conflict: self.has_conflict,
+-                has_deleted_file: self.has_deleted_file,
+-                project_items: self.project_items.clone(),
+-                nav_history: None,
+-                tab_descriptions: None,
+-                tab_detail: Default::default(),
+-                workspace_id: self.workspace_id,
+-                focus_handle: cx.focus_handle(),
+-                serialize: None,
++            Task::ready(Some(cx.new(|cx| {
++                Self {
++                    state: self.state.clone(),
++                    label: self.label.clone(),
++                    save_count: self.save_count,
++                    save_as_count: self.save_as_count,
++                    reload_count: self.reload_count,
++                    is_dirty: self.is_dirty,
++                    buffer_kind: self.buffer_kind,
++                    has_conflict: self.has_conflict,
++                    has_deleted_file: self.has_deleted_file,
++                    project_items: self.project_items.clone(),
++                    nav_history: None,
++                    tab_descriptions: None,
++                    tab_detail: Default::default(),
++                    workspace_id: self.workspace_id,
++                    focus_handle: cx.focus_handle(),
++                    serialize: None,
++                    child_focus_handles: self
++                        .child_focus_handles
++                        .iter()
++                        .map(|_| cx.focus_handle())
++                        .collect(),
++                }
+             })))
+         }
+ 
+diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
+index 7a430b7533..57e3796de7 100644
+--- a/crates/workspace/src/workspace.rs
++++ b/crates/workspace/src/workspace.rs
+@@ -7802,6 +7802,85 @@ mod tests {
+         item.read_with(cx, |item, _| assert_eq!(item.save_count, 6));
+     }
+ 
++    #[gpui::test]
++    async fn test_autosave_on_focus_change_in_multibuffer(cx: &mut gpui::TestAppContext) {
++        init_test(cx);
++
++        let fs = FakeFs::new(cx.executor());
++        let project = Project::test(fs, [], cx).await;
++        let (workspace, cx) =
++            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
++
++        // Create a multibuffer-like item with two child focus handles,
++        // simulating individual buffer editors within a multibuffer.
++        let item = cx.new(|cx| {
++            TestItem::new(cx)
++                .with_project_items(&[TestProjectItem::new(1, "1.txt", cx)])
++                .with_child_focus_handles(2, cx)
++        });
++        workspace.update_in(cx, |workspace, window, cx| {
++            workspace.add_item_to_active_pane(Box::new(item.clone()), None, true, window, cx);
++        });
++
++        // Set autosave to OnFocusChange and focus the first child handle,
++        // simulating the user's cursor being inside one of the multibuffer's excerpts.
++        item.update_in(cx, |item, window, cx| {
++            SettingsStore::update_global(cx, |settings, cx| {
++                settings.update_user_settings(cx, |settings| {
++                    settings.workspace.autosave = Some(AutosaveSetting::OnFocusChange);
++                })
++            });
++            item.is_dirty = true;
++            window.focus(&item.child_focus_handles[0], cx);
++        });
++        cx.executor().run_until_parked();
++        item.read_with(cx, |item, _| assert_eq!(item.save_count, 0));
++
++        // Moving focus from one child to another within the same item should
++        // NOT trigger autosave — focus is still within the item's focus hierarchy.
++        item.update_in(cx, |item, window, cx| {
++            window.focus(&item.child_focus_handles[1], cx);
++        });
++        cx.executor().run_until_parked();
++        item.read_with(cx, |item, _| {
++            assert_eq!(
++                item.save_count, 0,
++                "Switching focus between children within the same item should not autosave"
++            );
++        });
++
++        // Blurring the item saves the file. This is the core regression scenario:
++        // with `on_blur`, this would NOT trigger because `on_blur` only fires when
++        // the item's own focus handle is the leaf that lost focus. In a multibuffer,
++        // the leaf is always a child focus handle, so `on_blur` never detected
++        // focus leaving the item.
++        item.update_in(cx, |_, window, _| window.blur());
++        cx.executor().run_until_parked();
++        item.read_with(cx, |item, _| {
++            assert_eq!(
++                item.save_count, 1,
++                "Blurring should trigger autosave when focus was on a child of the item"
++            );
++        });
++
++        // Deactivating the window should also trigger autosave when a child of
++        // the multibuffer item currently owns focus.
++        item.update_in(cx, |item, window, cx| {
++            item.is_dirty = true;
++            window.focus(&item.child_focus_handles[0], cx);
++        });
++        cx.executor().run_until_parked();
++        item.read_with(cx, |item, _| assert_eq!(item.save_count, 1));
++
++        cx.deactivate_window();
++        item.read_with(cx, |item, _| {
++            assert_eq!(
++                item.save_count, 2,
++                "Deactivating window should trigger autosave when focus was on a child"
++            );
++        });
++    }
++
+     #[gpui::test]
+     async fn test_pane_navigation(cx: &mut gpui::TestAppContext) {
+         init_test(cx);
+-- 
+2.52.0
+

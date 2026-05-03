@@ -24,3 +24,4 @@
 * topiary-nushell
 * nu-lint
 * trivalent (more secure Chromium fork)
+* noctalia (once v5 is out)

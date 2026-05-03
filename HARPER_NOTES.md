@@ -5,7 +5,6 @@
 
 # Packages pending submission
 
-* user/gram
 * user/envycontrol
 * user/topiary
 
@@ -24,5 +23,4 @@
   * https://github.com/sublimelsp/LSP-eslint
 * topiary-nushell
 * nu-lint
-* dua (TUI disk usage analyzer)
 * trivalent (more secure Chromium fork)

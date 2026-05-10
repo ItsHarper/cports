@@ -10,6 +10,8 @@
 
 # Packages to add
 
+* gitg
+* gity
 * intelli-shell
 * pnpm (needed for vtsls)
 * vtsls (typescript LSP implementation)

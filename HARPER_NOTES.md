@@ -1,5 +1,12 @@
 # TODO
 
+* Write tooling to manage cports worktrees
+    * `git worktree add ~/cports-worktrees/gram add/gram`
+    * `ln -s ~/cports/bldroot/ ~/cports-worktrees/gram/bldroot`
+    * `ln -s /home/harper/cports/.gram/ ~/cports-worktrees/gram/.gram/`
+    * `ln -s /home/harper/cports/etc/config.ini ~/cports-worktrees/gram/etc/config.ini`
+    * `ln -s /home/harper/cports/etc/keys ~/cports-worktrees/gram/etc/keys`
+    * Write to `/etc/apk/repositories.d/00-local-gram.list`
 * Attempt to enable Gram tests
 * Remove hard tabs from all of my packages
 
